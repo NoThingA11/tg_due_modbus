@@ -99,6 +99,7 @@ void readRegister()
         Serial.print("  || Data Hex: ");
         for (j = 0; j < regCount && j < 6; j++) // Changed from 6 to 2 to match the number of registers read
         {
+            Serial.print("0x");
             Serial.print(dataRead[j], HEX);
             if (j < regCount - 1 && j < 5)
                 Serial.print(" ");
@@ -362,6 +363,15 @@ bool parseWriteCommand(String command, uint16_t &address, uint8_t &count, uint16
     // Extract count part (after comma, before DATA=)
     String countStr = registerPart.substring(commaIndex + 1);
     countStr.trim();
+
+    // Find "0X" part
+    int dataHeX = writePart.indexOf("0X");
+    int dataHex = writePart.indexOf("0x");
+    if (dataHeX == -1 && dataHex == -1)
+    {
+        Serial.println("Error: Write command must contain '0X' or '0x'");
+        return false;
+    }
 
     // Convert address string to uint16_t
     if (addrStr.startsWith("0x") || addrStr.startsWith("0X"))
