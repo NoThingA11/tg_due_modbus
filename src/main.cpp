@@ -6,35 +6,37 @@ ModbusMaster node;
 String inputStr = ""; // A String to hold incoming data
 static uint32_t i;
 uint8_t j, result;
-uint16_t dataRead[6]; // Array to hold read data
+uint16_t dataRead[6];                     // Array to hold read data
 uint16_t dataWrite[2] = {0x1234, 0x5678}; // ← ประกาศครั้งเดียวพอ
-uint16_t uid_data[4]; // Array for UID data
+uint16_t uid_data[4];                     // Array for UID data
 
 // Default register settings
 uint16_t regAddress = 0x0010;
 uint8_t regCount = 2;
-
-
 
 // Function to parse register command
 bool parseRegisterCommand(String command, uint16_t &address, uint8_t &count)
 {
     command.trim(); // Remove whitespace
 
+    // Extract the part after "READ="
+    String registerPart = command.substring(5); // Skip "READ="
+    registerPart.trim();
+
     // Check if command contains comma
-    int commaIndex = command.indexOf(',');
+    int commaIndex = registerPart.indexOf(',');
     if (commaIndex == -1)
     {
-        Serial.println("Error: Invalid format. Use '0x0010,4' format");
+        Serial.println("Error: Invalid format. Use 'READ=0x0010,2' format");
         return false;
     }
-    // Example command: "0x0010,4"
+    // Example command: "READ=0x0010,2"
     //  Extract address part (before comma)
-    String addrStr = command.substring(0, commaIndex); // 0x0010
+    String addrStr = registerPart.substring(0, commaIndex); // 0x0010
     addrStr.trim();
 
     // Extract count part (after comma)
-    String countStr = command.substring(commaIndex + 1); // 4
+    String countStr = registerPart.substring(commaIndex + 1); // 2
     countStr.trim();
 
     // Convert address string to uint16_t
@@ -317,22 +319,151 @@ void readUID()
     }
 }
 
-void writeRegister()
+// Function to parse write register command
+bool parseWriteCommand(String command, uint16_t &address, uint8_t &count, uint16_t *dataArray)
 {
-    node.clearTransmitBuffer(); // ล้าง Tx buffer ภายใน
+    command.trim(); // Remove whitespace
 
-    node.setTransmitBuffer(0, dataWrite[0]); // index 0 → reg 0x0010
-    node.setTransmitBuffer(1, dataWrite[1]); // index 1 → reg 0x0011
-
-    /* ---------- ส่งคำสั่ง Write Multiple (function 0x10) ---------- */
-    result = node.writeMultipleRegisters(0x0010, 2);
-    if (result == node.ku8MBSuccess)
+    // Check if command starts with "WRITE="
+    if (!command.startsWith("WRITE="))
     {
-        Serial.println(F("Write OK"));
+        Serial.println("Error: Write command must start with 'WRITE='");
+        return false;
+    }
+
+    // Extract the part after "WRITE="
+    String writePart = command.substring(6); // Skip "WRITE="
+    writePart.trim();
+
+    // Find "DATA=" part
+    int dataIndex = writePart.indexOf("DATA=");
+    if (dataIndex == -1)
+    {
+        Serial.println("Error: Write command must contain 'DATA='");
+        return false;
+    }
+
+    // Extract register part (before DATA=)
+    String registerPart = writePart.substring(0, dataIndex);
+    registerPart.trim();
+
+    // Check if register part contains comma
+    int commaIndex = registerPart.indexOf(',');
+    if (commaIndex == -1)
+    {
+        Serial.println("Error: Invalid format. Use 'WRITE=0x0010,2,DATA=0012,0000' format");
+        return false;
+    }
+
+    // Extract address part (before comma)
+    String addrStr = registerPart.substring(0, commaIndex);
+    addrStr.trim();
+
+    // Extract count part (after comma, before DATA=)
+    String countStr = registerPart.substring(commaIndex + 1);
+    countStr.trim();
+
+    // Convert address string to uint16_t
+    if (addrStr.startsWith("0x") || addrStr.startsWith("0X"))
+    {
+        address = strtol(addrStr.c_str(), NULL, 16);
     }
     else
     {
-        Serial.print(F("Modbus error: 0x"));
+        address = addrStr.toInt();
+    }
+
+    // Convert count string to uint8_t
+    count = countStr.toInt();
+
+    // Validate count (1-125 is typical Modbus limit)
+    if (count < 1 || count > 125)
+    {
+        Serial.println("Error: Register count must be between 1 and 125");
+        return false;
+    }
+
+    // Extract data part (after DATA=)
+    String dataPart = writePart.substring(dataIndex + 5); // Skip "DATA="
+    dataPart.trim();
+
+    // Parse data values
+    int dataCount = 0;
+    int startPos = 0;
+    int commaPos = dataPart.indexOf(',');
+
+    while (commaPos != -1 && dataCount < count)
+    {
+        String dataStr = dataPart.substring(startPos, commaPos);
+        dataStr.trim();
+
+        // Convert data string to uint16_t
+        if (dataStr.startsWith("0x") || dataStr.startsWith("0X"))
+        {
+            dataArray[dataCount] = strtol(dataStr.c_str(), NULL, 16);
+        }
+        else
+        {
+            dataArray[dataCount] = dataStr.toInt();
+        }
+
+        dataCount++;
+        startPos = commaPos + 1;
+        commaPos = dataPart.indexOf(',', startPos);
+    }
+
+    // Handle last data value (no comma after it)
+    if (dataCount < count && startPos < dataPart.length())
+    {
+        String dataStr = dataPart.substring(startPos);
+        dataStr.trim();
+
+        if (dataStr.startsWith("0x") || dataStr.startsWith("0X"))
+        {
+            dataArray[dataCount] = strtol(dataStr.c_str(), NULL, 16);
+        }
+        else
+        {
+            dataArray[dataCount] = dataStr.toInt();
+        }
+        dataCount++;
+    }
+
+    // Check if we got the right number of data values
+    if (dataCount != count)
+    {
+        Serial.print("Error: Expected ");
+        Serial.print(count);
+        Serial.print(" data values, but got ");
+        Serial.println(dataCount);
+        return false;
+    }
+
+    return true;
+}
+
+void writeRegister(uint16_t address, uint8_t count, uint16_t *dataArray)
+{
+    node.clearTransmitBuffer(); // ล้าง Tx buffer ภายใน
+
+    // Set data to transmit buffer
+    for (uint8_t i = 0; i < count; i++)
+    {
+        node.setTransmitBuffer(i, dataArray[i]);
+    }
+
+    /* ---------- ส่งคำสั่ง Write Multiple (function 0x10) ---------- */
+    result = node.writeMultipleRegisters(address, count);
+    if (result == node.ku8MBSuccess)
+    {
+        Serial.print("Write OK - Address: 0x");
+        Serial.print(address, HEX);
+        Serial.print(", Count: ");
+        Serial.println(count);
+    }
+    else
+    {
+        Serial.print("Modbus write error: 0x");
         Serial.println(result, HEX);
     }
 }
@@ -359,20 +490,68 @@ void loop()
         Serial.print("Received: ");
         Serial.println(teststr);
 
-        if (teststr == "write")
-        {
-            writeRegister();
-            return; // Skip if command is "write"
-        }
+        /*
+        รูปแบบที่รองรับสำหรับการ Read
+        ✅ READ=0x0010,2
+        ✅ READ=0x0054,4
+        ✅ READ=16,2
+        ❌ 0x0010,2 (ไม่มี READ=)
+        ❌ READ=0x0010 (ไม่มี comma)
+        ❌ READ=0x0010,200 (count เกิน 125)
 
-        // Parse the command if it's in register format
-        if (parseRegisterCommand(teststr, regAddress, regCount))
+        รูปแบบที่รองรับสำหรับการ Write
+        ✅ WRITE=0x0010,2,DATA=0012,0000
+        ✅ WRITE=0x0010,4,DATA=0012,0000,0012,0000
+        ✅ WRITE=16,2,DATA=18,0
+        ✅ WRITE=0x0054,2,DATA=0x1234,0x5678
+        ❌ WRITE=0x0010,2 (ไม่มี DATA=)
+        ❌ WRITE=0x0010,DATA=0012,0000 (ไม่มี count)
+        ❌ WRITE=0x0010,2,DATA=0012 (ข้อมูลไม่ครบ)
+        ❌ WRITE=0x0010,200,DATA=0012,0000 (count เกิน 125)
+        */
+
+        // Handle WRITE command
+        if (teststr.startsWith("WRITE="))
         {
-            Serial.print("Parsed - Address: 0x");
-            Serial.print(regAddress, HEX);
-            Serial.print(", Count: ");
-            Serial.println(regCount);
-            readRegister();
+            uint16_t writeAddress;
+            uint8_t writeCount;
+            uint16_t writeData[125]; // Maximum array size for write data
+
+            if (parseWriteCommand(teststr, writeAddress, writeCount, writeData))
+            {
+                Serial.print("Executing WRITE command - Address: 0x");
+                Serial.print(writeAddress, HEX);
+                Serial.print(", Count: ");
+                Serial.print(writeCount);
+                Serial.print(", Data: ");
+                for (uint8_t i = 0; i < writeCount; i++)
+                {
+                    Serial.print(writeData[i], HEX);
+                    if (i < writeCount - 1)
+                        Serial.print(",");
+                }
+                Serial.println();
+                writeRegister(writeAddress, writeCount, writeData);
+            }
+            return; // Skip other processing if it's a write command
+        }
+        // Check if command starts with "READ="
+        else if (teststr.startsWith("READ="))
+        {
+            // Parse the command if it's in register format
+            if (parseRegisterCommand(teststr, regAddress, regCount))
+            {
+                Serial.print("Executing READ command - Address: 0x");
+                Serial.print(regAddress, HEX);
+                Serial.print(", Count: ");
+                Serial.println(regCount);
+                readRegister();
+            }
+            return;
+        }
+        else
+        {
+            Serial.println("Error: Command must start with 'READ=' or 'WRITE='");
         }
     } // wait for data available
     //============================================
