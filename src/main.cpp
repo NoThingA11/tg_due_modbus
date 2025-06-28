@@ -6,12 +6,15 @@ ModbusMaster node;
 String inputStr = ""; // A String to hold incoming data
 static uint32_t i;
 uint8_t j, result;
-uint16_t data[6];
+uint16_t dataRead[6]; // Array to hold read data
+uint16_t dataWrite[2] = {0x1234, 0x5678}; // ← ประกาศครั้งเดียวพอ
 uint16_t uid_data[4]; // Array for UID data
 
 // Default register settings
 uint16_t regAddress = 0x0010;
 uint8_t regCount = 2;
+
+
 
 // Function to parse register command
 bool parseRegisterCommand(String command, uint16_t &address, uint8_t &count)
@@ -25,8 +28,8 @@ bool parseRegisterCommand(String command, uint16_t &address, uint8_t &count)
         Serial.println("Error: Invalid format. Use '0x0010,4' format");
         return false;
     }
-    //Example command: "0x0010,4"
-    // Extract address part (before comma)
+    // Example command: "0x0010,4"
+    //  Extract address part (before comma)
     String addrStr = command.substring(0, commaIndex); // 0x0010
     addrStr.trim();
 
@@ -63,9 +66,9 @@ void readRegister()
 {
     // slave: read registers based on parsed command
     result = node.readHoldingRegisters(regAddress, regCount);
-    Serial.print("Read Registers from 0x"); 
+    Serial.print("Read Registers from 0x");
     Serial.print(regAddress, HEX);
-    Serial.print(" Count: "); 
+    Serial.print(" Count: ");
     Serial.println(regCount);
 
     // do something with data if read is successful
@@ -73,7 +76,7 @@ void readRegister()
     {
         for (j = 0; j < regCount && j < 6; j++) // Limit to array size
         {
-            data[j] = node.getResponseBuffer(j);
+            dataRead[j] = node.getResponseBuffer(j);
         }
         // Serial.print("Loop count: ");
         // Serial.println(i);
@@ -85,7 +88,7 @@ void readRegister()
             // Print each register as 16-bit binary
             for (int bit = 15; bit >= 0; bit--)
             {
-                Serial.print((data[j] >> bit) & 1);
+                Serial.print((dataRead[j] >> bit) & 1);
             }
             if (j < regCount - 1 && j < 5)
                 Serial.print(" ");
@@ -94,7 +97,7 @@ void readRegister()
         Serial.print("  || Data Hex: ");
         for (j = 0; j < regCount && j < 6; j++) // Changed from 6 to 2 to match the number of registers read
         {
-            Serial.print(data[j], HEX);
+            Serial.print(dataRead[j], HEX);
             if (j < regCount - 1 && j < 5)
                 Serial.print(" ");
         }
@@ -312,7 +315,26 @@ void readUID()
         }
         Serial.println(")");
     }
+}
 
+void writeRegister()
+{
+    node.clearTransmitBuffer(); // ล้าง Tx buffer ภายใน
+
+    node.setTransmitBuffer(0, dataWrite[0]); // index 0 → reg 0x0010
+    node.setTransmitBuffer(1, dataWrite[1]); // index 1 → reg 0x0011
+
+    /* ---------- ส่งคำสั่ง Write Multiple (function 0x10) ---------- */
+    result = node.writeMultipleRegisters(0x0010, 2);
+    if (result == node.ku8MBSuccess)
+    {
+        Serial.println(F("Write OK"));
+    }
+    else
+    {
+        Serial.print(F("Modbus error: 0x"));
+        Serial.println(result, HEX);
+    }
 }
 
 void setup()
@@ -327,12 +349,21 @@ void setup()
 
 void loop()
 {
+    //============================================
+    // Section for reading serial commands
+    //============================================
     if (Serial.available())
     {
         String teststr = Serial.readString(); // read until timeout
         teststr.trim();                       // remove any \r \n whitespace at the end of the String
         Serial.print("Received: ");
         Serial.println(teststr);
+
+        if (teststr == "write")
+        {
+            writeRegister();
+            return; // Skip if command is "write"
+        }
 
         // Parse the command if it's in register format
         if (parseRegisterCommand(teststr, regAddress, regCount))
@@ -344,9 +375,9 @@ void loop()
             readRegister();
         }
     } // wait for data available
+    //============================================
+    // End Section for reading serial commands
+    //============================================
 
-    // readRegister(); // Read registers based on parsed command
-    // readUID();      // Read UID from registers 0x0054-0x0057
-    
     delay(50); // wait for 50ms before next loop iteration
 }
