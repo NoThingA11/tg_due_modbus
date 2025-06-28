@@ -25,13 +25,13 @@ bool parseRegisterCommand(String command, uint16_t &address, uint8_t &count)
         Serial.println("Error: Invalid format. Use '0x0010,4' format");
         return false;
     }
-
+    //Example command: "0x0010,4"
     // Extract address part (before comma)
-    String addrStr = command.substring(0, commaIndex);
+    String addrStr = command.substring(0, commaIndex); // 0x0010
     addrStr.trim();
 
     // Extract count part (after comma)
-    String countStr = command.substring(commaIndex + 1);
+    String countStr = command.substring(commaIndex + 1); // 4
     countStr.trim();
 
     // Convert address string to uint16_t
@@ -63,6 +63,10 @@ void readRegister()
 {
     // slave: read registers based on parsed command
     result = node.readHoldingRegisters(regAddress, regCount);
+    Serial.print("Read Registers from 0x"); 
+    Serial.print(regAddress, HEX);
+    Serial.print(" Count: "); 
+    Serial.println(regCount);
 
     // do something with data if read is successful
     if (result == node.ku8MBSuccess)
@@ -337,6 +341,7 @@ void loop()
             Serial.print(regAddress, HEX);
             Serial.print(", Count: ");
             Serial.println(regCount);
+            readRegister();
         }
     } // wait for data available
 
