@@ -59,35 +59,8 @@ bool parseRegisterCommand(String command, uint16_t &address, uint8_t &count)
     return true;
 }
 
-void setup()
+void readRegister()
 {
-    Serial.begin(115200);
-
-    Serial1.begin(115200); // Initialize Serial2 at 9600 baud rate, 8 data bits, no parity, 1 stop bit
-
-    // communicate with Modbus slave ID 1 over Serial (port 0)
-    node.begin(1, Serial1);
-}
-
-void loop()
-{
-    if (Serial.available())
-    {
-        String teststr = Serial.readString(); // read until timeout
-        teststr.trim();                       // remove any \r \n whitespace at the end of the String
-        Serial.print("Received: ");
-        Serial.println(teststr);
-
-        // Parse the command if it's in register format
-        if (parseRegisterCommand(teststr, regAddress, regCount))
-        {
-            Serial.print("Parsed - Address: 0x");
-            Serial.print(regAddress, HEX);
-            Serial.print(", Count: ");
-            Serial.println(regCount);
-        }
-    } // wait for data available
-
     // slave: read registers based on parsed command
     result = node.readHoldingRegisters(regAddress, regCount);
 
@@ -211,7 +184,10 @@ void loop()
         }
         Serial.println(")");
     }
+}
 
+void readUID()
+{
     // Read UID from registers 0x0054-0x0057
     result = node.readHoldingRegisters(0x0054, 4);
 
@@ -333,5 +309,39 @@ void loop()
         Serial.println(")");
     }
 
+}
+
+void setup()
+{
+    Serial.begin(115200);
+
+    Serial1.begin(115200); // Initialize Serial2 at 9600 baud rate, 8 data bits, no parity, 1 stop bit
+
+    // communicate with Modbus slave ID 1 over Serial (port 0)
+    node.begin(1, Serial1);
+}
+
+void loop()
+{
+    if (Serial.available())
+    {
+        String teststr = Serial.readString(); // read until timeout
+        teststr.trim();                       // remove any \r \n whitespace at the end of the String
+        Serial.print("Received: ");
+        Serial.println(teststr);
+
+        // Parse the command if it's in register format
+        if (parseRegisterCommand(teststr, regAddress, regCount))
+        {
+            Serial.print("Parsed - Address: 0x");
+            Serial.print(regAddress, HEX);
+            Serial.print(", Count: ");
+            Serial.println(regCount);
+        }
+    } // wait for data available
+
+    // readRegister(); // Read registers based on parsed command
+    // readUID();      // Read UID from registers 0x0054-0x0057
+    
     delay(50); // wait for 50ms before next loop iteration
 }
